@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>NIGHT BROADCAST</title>
+  <meta name="description" content="Type any sentence. Watch a neon city grow from it." />
+  <style>
+    :root {
+      --bg: #07070c;
+      --ink: #e8e4d8;
+      --dim: #8a8678;
+      --line: #1c1c26;
+      --amber: #ffb35a;
+      --pink: #ff4d8d;
+      --cyan: #3ee0c8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+    .hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      padding: 18px 20px calc(18px + env(safe-area-inset-bottom));
+    }
+    .top, .bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      pointer-events: none;
+    }
+    .call {
+      letter-spacing: 0.28em;
+      font-size: 11px;
+      color: var(--amber);
+      text-transform: uppercase;
+    }
+    .freq {
+      font-size: 22px;
+      letter-spacing: 0.08em;
+      line-height: 1;
+    }
+    .freq small {
+      display: block;
+      margin-top: 6px;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      color: var(--dim);
+      text-transform: uppercase;
+    }
+    .chip {
+      border: 1px solid var(--line);
+      background: rgba(7,7,12,0.55);
+      backdrop-filter: blur(8px);
+      padding: 8px 10px;
+      font-size: 10px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+    .live { color: var(--pink); }
+    .live::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--pink);
+      box-shadow: 0 0 10px var(--pink);
+      animation: pulse 1.6s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+    .prompt-wrap {
+      pointer-events: auto;
+      width: min(720px, 100%);
+      justify-self: center;
+      align-self: end;
+    }
+    label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 8px;
+    }
+    input {
+      width: 100%;
+      background: rgba(7,7,12,0.72);
+      border: 1px solid #2a2a38;
+      color: var(--ink);
+      font: inherit;
+      font-size: 16px;
+      padding: 14px 16px;
+      outline: none;
+      letter-spacing: 0.02em;
+    }
+    input:focus { border-color: var(--cyan); }
+    .hint {
+      margin-top: 8px;
+      font-size: 10px;
+      color: var(--dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .scan {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,0.015) 0px,
+        rgba(255,255,255,0.015) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      mix-blend-mode: overlay;
+    }
+    .vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" />
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div class="scan"></div>
+  <div class="vignette"></div>
+  <div class="hud">
+    <div class="top">
+      <div>
+        <div class="call" id="call">WLOS · NIGHT BROADCAST</div>
+        <div class="freq" id="freq">91.7 <small id="station">DEAD AIR FM</small></div>
+      </div>
+      <div class="chip"><span class="live">ON AIR</span></div>
+    </div>
+    <div></div>
+    <div class="bottom">
+      <div class="prompt-wrap">
+        <label for="phrase">Transmit</label>
+        <input id="phrase" maxlength="80" autocomplete="off" spellcheck="false" placeholder="type a sentence, a ticker, a name…" />
+        <div class="hint">enter to lock signal · s to save still · anything you type becomes architecture</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    const phraseEl = document.getElementById("phrase");
+    const freqEl = document.getElementById("freq");
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const initial = hashParams.get("q") || "the city only talks after midnight";
+    phraseEl.value = initial;
+
+    function hash32(str) {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+    function mulberry32(a) {
+      return function () {
+        a |= 0;
+        a = a + 0x6D2B79F5 | 0;
+        let t = Math.imul(a ^ a >>> 15, 1 | a);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+
+    const STATION_A = ["DEAD AIR","AFTER HOURS","STATIC","LOW TIDE","NO SIGNAL","GHOST TOWN","LAST CALL","NEON PIER","BLACKOUT","SLOW BURN"];
+    const STATION_B = ["FM","AM","WAVE","NET","CLUB","TOWER"];
+
+    let seed = 1;
+    let rand = mulberry32(1);
+    let city = null;
+    let t0 = performance.now();
+    let w = 0, h = 0, dpr = 1;
+
+    function rebuild(text) {
+      seed = hash32(text.trim().toLowerCase() || "silence");
+      rand = mulberry32(seed);
+      const mhz = (88 + (seed % 2100) / 100).toFixed(1);
+      const name = STATION_A[seed % STATION_A.length] + " " + STATION_B[(seed >>> 8) % STATION_B.length];
+      freqEl.innerHTML = mhz + " <small id=\"station\">" + name + "</small>";
+      location.hash = "q=" + encodeURIComponent(text.trim());
+      city = makeCity();
+    }
+
+    function makeCity() {
+      const r = rand;
+      const buildings = [];
+      const count = 28 + Math.floor(r() * 18);
+      let x = -40;
+      for (let i = 0; i < count; i++) {
+        const width = 18 + r() * 70;
+        const height = 40 + Math.pow(r(), 0.7) * 280;
+        const windows = [];
+        const cols = Math.max(2, Math.floor(width / 8));
+        const rows = Math.max(3, Math.floor(height / 10));
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            if (r() > 0.38) {
+              windows.push({
+                col, row,
+                hue: r() > 0.82 ? "pink" : r() > 0.6 ? "amber" : "warm",
+                phase: r() * Math.PI * 2,
+                speed: 0.4 + r() * 1.8
+              });
+            }
+          }
+        }
+        buildings.push({ x, width, height, antenna: r() > 0.72, stripe: r() > 0.8, windows, cols, rows });
+        x += width + 4 + r() * 10;
+      }
+      const stars = Array.from({ length: 90 }, () => ({ x: r(), y: r() * 0.55, s: r() * 1.6, tw: r() * Math.PI * 2 }));
+      const cars = Array.from({ length: 14 }, () => ({
+        x: r(),
+        lane: r() > 0.5 ? 0 : 1,
+        speed: (0.03 + r() * 0.08) * (r() > 0.5 ? 1 : -1),
+        warm: r() > 0.5
+      }));
+      const signs = [];
+      for (let i = 0; i < 5; i++) {
+        signs.push({ x: 0.1 + r() * 0.8, y: 0.35 + r() * 0.2, w: 40 + r() * 70, color: r() > 0.5 ? "#ff4d8d" : "#3ee0c8", flicker: r() });
+      }
+      return { buildings, stars, cars, signs, moon: r() };
+    }
+
+    function resize() {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = canvas.width = Math.floor(window.innerWidth * dpr);
+      h = canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + "px";
+      canvas.style.height = window.innerHeight + "px";
+    }
+
+    function draw(now) {
+      const t = (now - t0) / 1000;
+      if (!city) return requestAnimationFrame(draw);
+      const g = ctx;
+      g.setTransform(1,0,0,1,0,0);
+      g.fillStyle = "#07070c";
+      g.fillRect(0, 0, w, h);
+      const horizon = h * 0.62;
+      const sky = g.createLinearGradient(0, 0, 0, horizon);
+      sky.addColorStop(0, "#0a0b16");
+      sky.addColorStop(0.55, "#141228");
+      sky.addColorStop(1, "#2a1630");
+      g.fillStyle = sky;
+      g.fillRect(0, 0, w, horizon);
+      const moonX = w * (0.18 + city.moon * 0.6);
+      const moonY = h * (0.12 + city.moon * 0.08);
+      g.fillStyle = "rgba(255,230,200,0.08)";
+      g.beginPath();
+      g.arc(moonX, moonY, 70 * dpr, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = "#f3e6c8";
+      g.beginPath();
+      g.arc(moonX, moonY, 18 * dpr, 0, Math.PI * 2);
+      g.fill();
+      city.stars.forEach((s) => {
+        const a = 0.25 + Math.sin(t * 1.4 + s.tw) * 0.25;
+        g.fillStyle = `rgba(255,255,240,${a})`;
+        g.fillRect(s.x * w, s.y * horizon, s.s * dpr, s.s * dpr);
+      });
+      const haze = g.createLinearGradient(0, horizon - 80 * dpr, 0, horizon);
+      haze.addColorStop(0, "rgba(255,90,130,0)");
+      haze.addColorStop(1, "rgba(255,70,110,0.18)");
+      g.fillStyle = haze;
+      g.fillRect(0, horizon - 80 * dpr, w, 80 * dpr);
+      const scale = w / 980;
+      city.buildings.forEach((b, i) => {
+        const bx = b.x * scale + (w - 1100 * scale) / 2;
+        const bw = b.width * scale;
+        const bh = b.height * scale * (h / 700);
+        const by = horizon - bh;
+        g.fillStyle = i % 3 === 0 ? "#0c0d16" : "#10121c";
+        g.fillRect(bx, by, bw, bh);
+        g.fillStyle = "rgba(255,255,255,0.03)";
+        g.fillRect(bx, by, 2 * dpr, bh);
+        if (b.stripe) {
+          g.fillStyle = "rgba(62,224,200,0.15)";
+          g.fillRect(bx, by + bh * 0.2, bw, 3 * dpr);
+        }
+        const cellW = bw / b.cols;
+        const cellH = bh / b.rows;
+        b.windows.forEach((win) => {
+          const on = 0.45 + Math.sin(t * win.speed + win.phase) * 0.55;
+          if (on < 0.15) return;
+          const color = win.hue === "pink" ? `rgba(255,77,141,${0.35 + on * 0.5})`
+            : win.hue === "amber" ? `rgba(255,179,90,${0.35 + on * 0.5})`
+            : `rgba(255,220,160,${0.25 + on * 0.4})`;
+          g.fillStyle = color;
+          g.fillRect(bx + win.col * cellW + cellW * 0.25, by + win.row * cellH + cellH * 0.25, cellW * 0.5, cellH * 0.45);
+        });
+        if (b.antenna) {
+          g.strokeStyle = "#3a3a48";
+          g.lineWidth = 1 * dpr;
+          g.beginPath();
+          g.moveTo(bx + bw * 0.5, by);
+          g.lineTo(bx + bw * 0.5, by - 18 * dpr);
+          g.stroke();
+          g.fillStyle = Math.sin(t * 6 + i) > 0 ? "#ff4d8d" : "#3ee0c8";
+          g.beginPath();
+          g.arc(bx + bw * 0.5, by - 18 * dpr, 1.6 * dpr, 0, Math.PI * 2);
+          g.fill();
+        }
+      });
+      city.signs.forEach((s) => {
+        const blink = 0.55 + Math.sin(t * 3 + s.flicker * 10) * 0.45;
+        g.globalAlpha = Math.max(0.2, blink);
+        g.fillStyle = s.color;
+        g.fillRect(s.x * w, s.y * h, s.w * scale * 0.4, 4 * dpr);
+        g.globalAlpha = 1;
+      });
+      g.fillStyle = "#09090f";
+      g.fillRect(0, horizon, w, h - horizon);
+      const roadY = horizon + 28 * dpr;
+      g.fillStyle = "#12121a";
+      g.fillRect(0, roadY, w, 18 * dpr);
+      g.fillStyle = "rgba(255,179,90,0.35)";
+      for (let i = 0; i < 18; i++) {
+        const dash = ((t * 80 + i * 70) % (w + 40)) - 20;
+        g.fillRect(dash, roadY + 8 * dpr, 22 * dpr, 1.5 * dpr);
+      }
+      city.cars.forEach((car) => {
+        car.x = (car.x + car.speed * 0.003) % 1;
+        if (car.x < 0) car.x += 1;
+        const cx = car.x * w;
+        const cy = roadY + (car.lane ? 11 : 3) * dpr;
+        g.fillStyle = car.warm ? "#ffb35a" : "#ff4d8d";
+        g.fillRect(cx, cy, 10 * dpr, 2 * dpr);
+        g.fillStyle = car.speed > 0 ? "#ffffff" : "#3ee0c8";
+        g.fillRect(cx + (car.speed > 0 ? 10 * dpr : -2 * dpr), cy, 2 * dpr, 2 * dpr);
+      });
+      const fg = g.createLinearGradient(0, horizon, 0, h);
+      fg.addColorStop(0, "rgba(7,7,12,0)");
+      fg.addColorStop(1, "rgba(7,7,12,0.85)");
+      g.fillStyle = fg;
+      g.fillRect(0, horizon, w, h - horizon);
+      requestAnimationFrame(draw);
+    }
+
+    function saveStill() {
+      const a = document.createElement("a");
+      a.download = "night-broadcast.png";
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    }
+
+    window.addEventListener("resize", resize);
+    phraseEl.addEventListener("input", () => rebuild(phraseEl.value));
+    phraseEl.addEventListener("keydown", (e) => { if (e.key === "Enter") phraseEl.blur(); });
+    window.addEventListener("keydown", (e) => {
+      if (e.target === phraseEl) return;
+      if (e.key === "s" || e.key === "S") saveStill();
+      if (e.key === "/") { e.preventDefault(); phraseEl.focus(); }
+    });
+
+    resize();
+    rebuild(initial);
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>
