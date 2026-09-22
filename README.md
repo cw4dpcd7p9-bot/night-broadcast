@@ -1,12 +1,14 @@
 # NIGHT BROADCAST
 
+**Live:** https://htmlpreview.github.io/?https://github.com/cw4dpcd7p9-bot/night-broadcast/blob/main/index.html
+
 Type any sentence. Watch a city grow out of it.
 
 A single HTML file. No build step, no packages, no backend. The string you type is hashed into a seed. That seed decides the skyline, the station name, the frequency, which windows stay on, and how the highway moves.
 
 Same sentence, same city. Every time.
 
-## Open it
+## Open it locally
 
 Clone it and double-click `index.html`, or serve the folder:
 
